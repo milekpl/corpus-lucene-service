@@ -2,8 +2,6 @@ package pl.marcinmilkowski.corpus_service;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
-import org.apache.lucene.analysis.morfologik.MorfologikAnalyzer;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StoredField;
@@ -14,7 +12,6 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.corpus_service.analyzers.ExactTokenAnalyzer;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -28,13 +25,16 @@ import java.util.Map;
  * Uses streaming to avoid memory issues with large result sets.
  * Commits documents in batches for efficiency.
  *
- * Creates documents with fields:
- * - en_text: English text analyzed with StandardAnalyzer
- * - en_exact: English text with punctuation preserved
- * - en_raw: Original English text (stored only)
- * - pl_text: Polish text analyzed with MorfologikAnalyzer
- * - pl_exact: Polish text with punctuation preserved
- * - pl_raw: Original Polish text (stored only)
+ * Creates documents with fields for the configured language pair:
+ * - {sourceLang}_text: Source language text analyzed with language-specific analyzer
+ * - {sourceLang}_exact: Source text with punctuation preserved
+ * - {sourceLang}_raw: Original source text (stored only)
+ * - {targetLang}_text: Target language text analyzed with language-specific analyzer
+ * - {targetLang}_exact: Target text with punctuation preserved
+ * - {targetLang}_raw: Original target text (stored only)
+ *
+ * Usage:
+ *   java -jar corpus-service.jar build --jdbc <url> --index <path> --source-lang en --target-lang pl
  */
 public class IndexBuilder {
 
@@ -47,12 +47,34 @@ public class IndexBuilder {
     private final String jdbcUser;
     private final String jdbcPassword;
     private final Path indexPath;
+    private final String sourceLang;
+    private final String targetLang;
 
+    /**
+     * Create IndexBuilder with default languages (en, pl).
+     */
     public IndexBuilder(String jdbcUrl, String jdbcUser, String jdbcPassword, Path indexPath) {
+        this(jdbcUrl, jdbcUser, jdbcPassword, indexPath, "en", "pl");
+    }
+
+    /**
+     * Create IndexBuilder with specified language pair.
+     *
+     * @param jdbcUrl     JDBC connection URL
+     * @param jdbcUser    Database username
+     * @param jdbcPassword Database password
+     * @param indexPath   Path to Lucene index directory
+     * @param sourceLang  Source language code (e.g., "en")
+     * @param targetLang  Target language code (e.g., "pl")
+     */
+    public IndexBuilder(String jdbcUrl, String jdbcUser, String jdbcPassword, Path indexPath,
+                        String sourceLang, String targetLang) {
         this.jdbcUrl = jdbcUrl;
         this.jdbcUser = jdbcUser;
         this.jdbcPassword = jdbcPassword;
         this.indexPath = indexPath;
+        this.sourceLang = sourceLang;
+        this.targetLang = targetLang;
     }
 
     /**
@@ -65,6 +87,7 @@ public class IndexBuilder {
         log.info("Building index from database...");
         log.info("JDBC URL: {}", jdbcUrl);
         log.info("Index path: {}", indexPath);
+        log.info("Language pair: {} -> {}", sourceLang, targetLang);
         log.info("Batch size: {} documents", BATCH_SIZE);
 
         Analyzer analyzer = createAnalyzer();
@@ -95,11 +118,11 @@ public class IndexBuilder {
 
                         // Process rows one at a time (streaming)
                         while (rs.next()) {
-                            String enText = rs.getString(1);
-                            String plText = rs.getString(2);
+                            String sourceText = rs.getString(1);
+                            String targetText = rs.getString(2);
 
-                            if (enText != null && plText != null) {
-                                Document doc = createDocument(enText, plText);
+                            if (sourceText != null && targetText != null) {
+                                Document doc = createDocument(sourceText, targetText);
                                 writer.addDocument(doc);
                                 count++;
 
@@ -137,29 +160,29 @@ public class IndexBuilder {
     private Analyzer createAnalyzer() {
         Map<String, Analyzer> fieldAnalyzers = new HashMap<>();
 
-        // English fields
-        fieldAnalyzers.put("en_text", new StandardAnalyzer());
-        fieldAnalyzers.put("en_exact", new ExactTokenAnalyzer());
+        // Source language fields
+        fieldAnalyzers.put(sourceLang + "_text", LanguageConfig.getTextAnalyzer(sourceLang));
+        fieldAnalyzers.put(sourceLang + "_exact", LanguageConfig.getExactAnalyzer());
 
-        // Polish fields
-        fieldAnalyzers.put("pl_text", new MorfologikAnalyzer());
-        fieldAnalyzers.put("pl_exact", new ExactTokenAnalyzer());
+        // Target language fields
+        fieldAnalyzers.put(targetLang + "_text", LanguageConfig.getTextAnalyzer(targetLang));
+        fieldAnalyzers.put(targetLang + "_exact", LanguageConfig.getExactAnalyzer());
 
-        return new PerFieldAnalyzerWrapper(new StandardAnalyzer(), fieldAnalyzers);
+        return new PerFieldAnalyzerWrapper(LanguageConfig.getTextAnalyzer(sourceLang), fieldAnalyzers);
     }
 
-    private Document createDocument(String enText, String plText) {
+    private Document createDocument(String sourceText, String targetText) {
         Document doc = new Document();
 
-        // English fields
-        doc.add(new TextField("en_text", enText, Field.Store.NO));
-        doc.add(new TextField("en_exact", enText, Field.Store.NO));
-        doc.add(new StoredField("en_raw", enText));
+        // Source language fields
+        doc.add(new TextField(sourceLang + "_text", sourceText, Field.Store.NO));
+        doc.add(new TextField(sourceLang + "_exact", sourceText, Field.Store.NO));
+        doc.add(new StoredField(sourceLang + "_raw", sourceText));
 
-        // Polish fields
-        doc.add(new TextField("pl_text", plText, Field.Store.NO));
-        doc.add(new TextField("pl_exact", plText, Field.Store.NO));
-        doc.add(new StoredField("pl_raw", plText));
+        // Target language fields
+        doc.add(new TextField(targetLang + "_text", targetText, Field.Store.NO));
+        doc.add(new TextField(targetLang + "_exact", targetText, Field.Store.NO));
+        doc.add(new StoredField(targetLang + "_raw", targetText));
 
         return doc;
     }

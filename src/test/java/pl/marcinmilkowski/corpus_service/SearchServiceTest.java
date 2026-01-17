@@ -110,8 +110,8 @@ class SearchServiceTest {
         assertEquals(1, result.hits().size());
 
         var hit = result.hits().get(0);
-        assertTrue(hit.en().contains("butterfly"));
-        assertTrue(hit.pl().contains("motyla"));
+        assertTrue(hit.source().contains("butterfly"));
+        assertTrue(hit.target().contains("motyla"));
     }
 
     @Test

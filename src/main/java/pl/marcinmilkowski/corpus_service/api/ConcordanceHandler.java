@@ -5,14 +5,16 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import pl.marcinmilkowski.corpus_service.SearchService;
-import pl.marcinmilkowski.corpus_service.SearchService.ConcordanceHit;
 import pl.marcinmilkowski.corpus_service.SearchService.ConcordanceResult;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 /**
- * GET /concordance?q={term}&field={en|pl}&limit=50&offset=0
+ * GET /concordance?q={term}&field={lang}&limit=50&offset=0
+ *
+ * Returns sentences containing the search term in the specified language.
  */
 public class ConcordanceHandler extends HttpServlet {
 
@@ -38,12 +40,15 @@ public class ConcordanceHandler extends HttpServlet {
             return;
         }
 
+        Set<String> availableLangs = searchService.getSupportedLanguages();
+
         if (field == null || field.isBlank()) {
-            field = "en";
+            field = searchService.getSourceLanguage();
         }
 
-        if (!field.equals("en") && !field.equals("pl")) {
-            sendError(resp, 400, "Field must be 'en' or 'pl'");
+        if (!availableLangs.contains(field.toLowerCase())) {
+            sendError(resp, 400, "Unsupported language: " + field +
+                    ". Available: " + String.join(", ", availableLangs));
             return;
         }
 
@@ -53,12 +58,15 @@ public class ConcordanceHandler extends HttpServlet {
         limit = Math.min(limit, MAX_LIMIT);
         offset = Math.max(offset, 0);
 
+        String sourceLang = searchService.getSourceLanguage();
+        String targetLang = searchService.getTargetLanguage();
+
         try {
             ConcordanceResult result = searchService.concordance(query, field, limit, offset);
             sendJson(resp, new ConcordanceResponse(
                     result.total(),
                     result.hits().stream()
-                            .map(h -> new HitResponse(h.en(), h.pl()))
+                            .map(h -> new HitResponse(h.source(), h.target(), sourceLang, targetLang))
                             .toList()
             ));
         } catch (Exception e) {
@@ -87,7 +95,7 @@ public class ConcordanceHandler extends HttpServlet {
         resp.getWriter().write(gson.toJson(new ErrorResponse(message)));
     }
 
-    record HitResponse(String en, String pl) {}
+    record HitResponse(String source, String target, String sourceLang, String targetLang) {}
     record ConcordanceResponse(int total, List<HitResponse> hits) {}
     record ErrorResponse(String error) {}
 }

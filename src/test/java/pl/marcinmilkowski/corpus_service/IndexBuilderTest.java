@@ -186,8 +186,8 @@ class IndexBuilderTest {
             assertEquals(1, result.hits().size());
 
             var hit = result.hits().get(0);
-            assertTrue(hit.en().contains("quick"));
-            assertTrue(hit.pl().contains("lis"));
+            assertTrue(hit.source().contains("quick"));
+            assertTrue(hit.target().contains("lis"));
         }
     }
 

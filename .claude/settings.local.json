@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile:*)",
+      "Bash(mvn test:*)",
+      "Bash(chmod:*)",
+      "Bash(mvn:*)"
+    ]
+  }
+}

@@ -11,9 +11,10 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * GET /parallel?en={term}&pl={term}&limit=20
+ * GET /parallel?source={term}&target={term}&limit=20
  *
- * Finds sentences containing both English and Polish terms.
+ * Finds sentences containing both terms from source and target languages.
+ * Uses language codes from the index (e.g., ?en=hello&pl=halo).
  */
 public class ParallelHandler extends HttpServlet {
 
@@ -29,29 +30,32 @@ public class ParallelHandler extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String enTerm = req.getParameter("en");
-        String plTerm = req.getParameter("pl");
+        String sourceTerm = req.getParameter(searchService.getSourceLanguage());
+        String targetTerm = req.getParameter(searchService.getTargetLanguage());
         String limitStr = req.getParameter("limit");
 
-        if (enTerm == null || enTerm.isBlank()) {
-            sendError(resp, 400, "Missing 'en' parameter");
+        if (sourceTerm == null || sourceTerm.isBlank()) {
+            sendError(resp, 400, "Missing '" + searchService.getSourceLanguage() + "' parameter");
             return;
         }
 
-        if (plTerm == null || plTerm.isBlank()) {
-            sendError(resp, 400, "Missing 'pl' parameter");
+        if (targetTerm == null || targetTerm.isBlank()) {
+            sendError(resp, 400, "Missing '" + searchService.getTargetLanguage() + "' parameter");
             return;
         }
 
         int limit = parseIntOrDefault(limitStr, DEFAULT_LIMIT);
         limit = Math.min(limit, MAX_LIMIT);
 
+        String sourceLang = searchService.getSourceLanguage();
+        String targetLang = searchService.getTargetLanguage();
+
         try {
-            ConcordanceResult result = searchService.parallel(enTerm, plTerm, limit);
+            ConcordanceResult result = searchService.parallel(sourceTerm, targetTerm, limit);
             sendJson(resp, new ParallelResponse(
                     result.total(),
                     result.hits().stream()
-                            .map(h -> new HitResponse(h.en(), h.pl()))
+                            .map(h -> new HitResponse(h.source(), h.target(), sourceLang, targetLang))
                             .toList()
             ));
         } catch (Exception e) {
@@ -80,7 +84,7 @@ public class ParallelHandler extends HttpServlet {
         resp.getWriter().write(gson.toJson(new ErrorResponse(message)));
     }
 
-    record HitResponse(String en, String pl) {}
+    record HitResponse(String source, String target, String sourceLang, String targetLang) {}
     record ParallelResponse(int total, List<HitResponse> hits) {}
     record ErrorResponse(String error) {}
 }

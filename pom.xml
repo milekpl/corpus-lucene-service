@@ -62,6 +62,12 @@
             <version>${jetty.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-servlets</artifactId>
+            <version>${jetty.version}</version>
+        </dependency>
+
         <!-- PostgreSQL JDBC -->
         <dependency>
             <groupId>org.postgresql</groupId>

@@ -38,7 +38,9 @@ public class HealthHandler extends HttpServlet {
                 searchService.getDocCount(),
                 heapUsed,
                 heapMax,
-                uptimeSeconds
+                uptimeSeconds,
+                searchService.getSourceLanguage(),
+                searchService.getTargetLanguage()
         );
 
         resp.setContentType("application/json");
@@ -51,6 +53,8 @@ public class HealthHandler extends HttpServlet {
             int docs,
             long heapUsedMb,
             long heapMaxMb,
-            long uptimeSeconds
+            long uptimeSeconds,
+            String sourceLang,
+            String targetLang
     ) {}
 }

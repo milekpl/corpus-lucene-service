@@ -1,19 +1,12 @@
 package pl.marcinmilkowski.corpus_service;
 
-import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
-import org.apache.lucene.analysis.morfologik.MorfologikAnalyzer;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.*;
-import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import pl.marcinmilkowski.corpus_service.analyzers.ExactTokenAnalyzer;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -22,6 +15,9 @@ import java.util.*;
 
 /**
  * Lucene search service for corpus queries.
+ *
+ * Dynamically discovers language fields from the index at startup.
+ * Supports any language pair that was used to build the index.
  */
 public class SearchService implements Closeable {
 
@@ -31,8 +27,9 @@ public class SearchService implements Closeable {
     private final DirectoryReader reader;
     private final IndexWriter writer;
     private final IndexSearcher searcher;
-    private final Analyzer analyzer;
-    private final Analyzer exactAnalyzer;
+    private final Set<String> supportedFields;
+    private final String sourceLang;
+    private final String targetLang;
 
     public SearchService(Path indexPath) throws IOException {
         this(new NIOFSDirectory(indexPath));
@@ -46,19 +43,72 @@ public class SearchService implements Closeable {
         this.writer = new IndexWriter(directory, new IndexWriterConfig());
         this.reader = DirectoryReader.open(directory);
         this.searcher = new IndexSearcher(reader);
-        this.analyzer = createAnalyzer();
-        this.exactAnalyzer = new ExactTokenAnalyzer();
+
+        // Discover fields from index and build analyzer
+        FieldDiscoverer discoverer = new FieldDiscoverer(reader);
+        this.supportedFields = discoverer.getLanguageFields();
+
+        // Determine source and target languages
+        String[] langs = supportedFields.toArray(new String[0]);
+        this.sourceLang = langs.length > 0 ? langs[0] : "en";
+
+        if (langs.length > 1) {
+            this.targetLang = langs[1];
+        } else if (langs.length > 0) {
+            this.targetLang = langs[0];
+        } else {
+            this.targetLang = "pl";
+        }
 
         log.info("SearchService initialized with {} documents", reader.numDocs());
+        log.info("Discovered language fields: {}", supportedFields);
     }
 
-    private Analyzer createAnalyzer() {
-        Map<String, Analyzer> fieldAnalyzers = new HashMap<>();
-        fieldAnalyzers.put("en_text", new StandardAnalyzer());
-        fieldAnalyzers.put("en_exact", new ExactTokenAnalyzer());
-        fieldAnalyzers.put("pl_text", new MorfologikAnalyzer());
-        fieldAnalyzers.put("pl_exact", new ExactTokenAnalyzer());
-        return new PerFieldAnalyzerWrapper(new StandardAnalyzer(), fieldAnalyzers);
+    /**
+     * Get the source language code (first language discovered).
+     */
+    public String getSourceLanguage() {
+        return sourceLang;
+    }
+
+    /**
+     * Get the target language code (second language discovered).
+     */
+    public String getTargetLanguage() {
+        return targetLang;
+    }
+
+    /**
+     * Add a document to the index.
+     *
+     * @param doc the document to add
+     * @throws IOException if an I/O error occurs
+     */
+    public void addDocument(Document doc) throws IOException {
+        writer.addDocument(doc);
+    }
+
+    /**
+     * Commit pending changes to the index.
+     *
+     * @throws IOException if an I/O error occurs
+     */
+    public void commit() throws IOException {
+        writer.commit();
+    }
+
+    /**
+     * Get the set of language codes available in the index.
+     */
+    public Set<String> getSupportedLanguages() {
+        return Collections.unmodifiableSet(supportedFields);
+    }
+
+    /**
+     * Check if a language field exists in the index.
+     */
+    public boolean hasLanguage(String languageCode) {
+        return supportedFields.contains(languageCode.toLowerCase());
     }
 
     /**
@@ -139,11 +189,14 @@ public class SearchService implements Closeable {
         List<ConcordanceHit> hits = new ArrayList<>();
         int total = (int) topDocs.totalHits.value;
 
+        String rawField1 = sourceLang + "_raw";
+        String rawField2 = targetLang + "_raw";
+
         for (int i = offset; i < Math.min(offset + limit, topDocs.scoreDocs.length); i++) {
             Document doc = searcher.storedFields().document(topDocs.scoreDocs[i].doc);
             hits.add(new ConcordanceHit(
-                    doc.get("en_raw"),
-                    doc.get("pl_raw")
+                    doc.get(rawField1),
+                    doc.get(rawField2)
             ));
         }
 
@@ -151,31 +204,34 @@ public class SearchService implements Closeable {
     }
 
     /**
-     * Find parallel sentences containing both English and Polish terms.
+     * Find parallel sentences containing both language terms.
      *
-     * @param enTerm English term
-     * @param plTerm Polish term
-     * @param limit  max results
+     * @param term1 Term in source language
+     * @param term2 Term in target language
+     * @param limit max results
      * @return concordance result
      */
-    public ConcordanceResult parallel(String enTerm, String plTerm, int limit) throws IOException {
-        Query enQuery = buildQuery(enTerm, "en");
-        Query plQuery = buildQuery(plTerm, "pl");
+    public ConcordanceResult parallel(String term1, String term2, int limit) throws IOException {
+        Query query1 = buildQuery(term1, sourceLang);
+        Query query2 = buildQuery(term2, targetLang);
 
         BooleanQuery combined = new BooleanQuery.Builder()
-                .add(enQuery, BooleanClause.Occur.MUST)
-                .add(plQuery, BooleanClause.Occur.MUST)
+                .add(query1, BooleanClause.Occur.MUST)
+                .add(query2, BooleanClause.Occur.MUST)
                 .build();
 
         TopDocs topDocs = searcher.search(combined, limit);
         int total = (int) topDocs.totalHits.value;
 
+        String rawField1 = sourceLang + "_raw";
+        String rawField2 = targetLang + "_raw";
+
         List<ConcordanceHit> hits = new ArrayList<>();
         for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
             Document doc = searcher.storedFields().document(scoreDoc.doc);
             hits.add(new ConcordanceHit(
-                    doc.get("en_raw"),
-                    doc.get("pl_raw")
+                    doc.get(rawField1),
+                    doc.get(rawField2)
             ));
         }
 
@@ -185,7 +241,7 @@ public class SearchService implements Closeable {
     /**
      * Build appropriate query based on term characteristics.
      */
-    private Query buildQuery(String term, String field) throws IOException {
+    private Query buildQuery(String term, String field) {
         String textField = field + "_text";
         String exactField = field + "_exact";
 
@@ -206,7 +262,7 @@ public class SearchService implements Closeable {
         return new TermQuery(new Term(textField, term.toLowerCase()));
     }
 
-    private Query buildPhraseQuery(String phrase, String field) throws IOException {
+    private Query buildPhraseQuery(String phrase, String field) {
         String[] words = phrase.toLowerCase().split("\\s+");
         PhraseQuery.Builder builder = new PhraseQuery.Builder();
         for (String word : words) {
@@ -224,7 +280,7 @@ public class SearchService implements Closeable {
 
     // Result classes
 
-    public record ConcordanceHit(String en, String pl) {}
+    public record ConcordanceHit(String source, String target) {}
 
     public record ConcordanceResult(int total, List<ConcordanceHit> hits) {}
 }

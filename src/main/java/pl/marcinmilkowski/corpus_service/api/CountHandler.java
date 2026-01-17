@@ -7,9 +7,12 @@ import jakarta.servlet.http.HttpServletResponse;
 import pl.marcinmilkowski.corpus_service.SearchService;
 
 import java.io.IOException;
+import java.util.Set;
 
 /**
- * GET /count?q={term}&field={en|pl}
+ * GET /count?q={term}&field={lang}
+ *
+ * Returns the number of documents matching the query in the specified language field.
  */
 public class CountHandler extends HttpServlet {
 
@@ -30,12 +33,16 @@ public class CountHandler extends HttpServlet {
             return;
         }
 
+        Set<String> availableLangs = searchService.getSupportedLanguages();
+
         if (field == null || field.isBlank()) {
-            field = "en";
+            // Default to source language
+            field = searchService.getSourceLanguage();
         }
 
-        if (!field.equals("en") && !field.equals("pl")) {
-            sendError(resp, 400, "Field must be 'en' or 'pl'");
+        if (!availableLangs.contains(field.toLowerCase())) {
+            sendError(resp, 400, "Unsupported language: " + field +
+                    ". Available: " + String.join(", ", availableLangs));
             return;
         }
 

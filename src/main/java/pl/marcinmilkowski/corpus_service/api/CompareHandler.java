@@ -10,10 +10,13 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * POST /compare
  * Body: { "terms": ["lifespan", "life span", "life-span"], "field": "en" }
+ *
+ * Compares multiple search terms and returns their frequency counts.
  */
 public class CompareHandler extends HttpServlet {
 
@@ -39,9 +42,12 @@ public class CompareHandler extends HttpServlet {
             return;
         }
 
-        String field = request.field != null ? request.field : "en";
-        if (!field.equals("en") && !field.equals("pl")) {
-            sendError(resp, 400, "Field must be 'en' or 'pl'");
+        Set<String> availableLangs = searchService.getSupportedLanguages();
+        String field = request.field != null ? request.field : searchService.getSourceLanguage();
+
+        if (!availableLangs.contains(field.toLowerCase())) {
+            sendError(resp, 400, "Unsupported language: " + field +
+                    ". Available: " + String.join(", ", availableLangs));
             return;
         }
 
