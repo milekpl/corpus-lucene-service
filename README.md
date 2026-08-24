@@ -7,7 +7,7 @@ A high-performance REST service for parallel corpus queries using Apache Lucene.
 - **Multi-language support** - 40+ language pairs with language-specific analyzers
 - **Fast document counting** - Count occurrences of terms across any supported language
 - **Concordance search** - Find parallel sentences with surrounding context
-- **Parallel text retrieval** - Cross-language search for translation pairs
+- **Parallel text retrieval** - Cross-language search for translation pairs, with pagination via `limit`/`offset`
 - **Term comparison** - Compare frequency of multiple terms/variants
 - **REST API** - Simple JSON endpoints for integration
 - **Streaming index build** - Handle corpora with billions of sentences
@@ -131,13 +131,13 @@ curl "http://localhost:8082/concordance?q=Übersetzung&field=de&limit=10"
 ### Parallel Text Search
 
 ```bash
-GET /parallel?{source_lang}={term}&{target_lang}={translation}&limit=100
+GET /parallel?{source_lang}={term}&{target_lang}={translation}&limit=100&offset=0
 ```
 
 Example for German-English:
 
 ```bash
-curl "http://localhost:8082/parallel?de=Haus&en=house&limit=10"
+curl "http://localhost:8082/parallel?de=Haus&en=house&limit=10&offset=20"
 ```
 
 ### Compare Terms

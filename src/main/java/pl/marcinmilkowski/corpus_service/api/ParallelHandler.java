@@ -11,7 +11,7 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * GET /parallel?source={term}&target={term}&limit=20
+ * GET /parallel?source={term}&target={term}&limit=20&offset=0
  *
  * Finds sentences containing both terms from source and target languages.
  * Uses language codes from the index (e.g., ?en=hello&pl=halo).
@@ -33,6 +33,7 @@ public class ParallelHandler extends HttpServlet {
         String sourceTerm = req.getParameter(searchService.getSourceLanguage());
         String targetTerm = req.getParameter(searchService.getTargetLanguage());
         String limitStr = req.getParameter("limit");
+        String offsetStr = req.getParameter("offset");
 
         if (sourceTerm == null || sourceTerm.isBlank()) {
             sendError(resp, 400, "Missing '" + searchService.getSourceLanguage() + "' parameter");
@@ -45,13 +46,15 @@ public class ParallelHandler extends HttpServlet {
         }
 
         int limit = parseIntOrDefault(limitStr, DEFAULT_LIMIT);
+        int offset = parseIntOrDefault(offsetStr, 0);
         limit = Math.min(limit, MAX_LIMIT);
+        offset = Math.max(offset, 0);
 
         String sourceLang = searchService.getSourceLanguage();
         String targetLang = searchService.getTargetLanguage();
 
         try {
-            ConcordanceResult result = searchService.parallel(sourceTerm, targetTerm, limit);
+            ConcordanceResult result = searchService.parallel(sourceTerm, targetTerm, limit, offset);
             sendJson(resp, new ParallelResponse(
                     result.total(),
                     result.hits().stream()

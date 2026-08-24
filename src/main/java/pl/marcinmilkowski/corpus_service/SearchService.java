@@ -206,12 +206,13 @@ public class SearchService implements Closeable {
     /**
      * Find parallel sentences containing both language terms.
      *
-     * @param term1 Term in source language
-     * @param term2 Term in target language
-     * @param limit max results
+     * @param term1  Term in source language
+     * @param term2  Term in target language
+     * @param limit  max results
+     * @param offset skip first N results
      * @return concordance result
      */
-    public ConcordanceResult parallel(String term1, String term2, int limit) throws IOException {
+    public ConcordanceResult parallel(String term1, String term2, int limit, int offset) throws IOException {
         Query query1 = buildQuery(term1, sourceLang);
         Query query2 = buildQuery(term2, targetLang);
 
@@ -220,15 +221,15 @@ public class SearchService implements Closeable {
                 .add(query2, BooleanClause.Occur.MUST)
                 .build();
 
-        TopDocs topDocs = searcher.search(combined, limit);
+        TopDocs topDocs = searcher.search(combined, offset + limit);
         int total = (int) topDocs.totalHits.value;
 
         String rawField1 = sourceLang + "_raw";
         String rawField2 = targetLang + "_raw";
 
         List<ConcordanceHit> hits = new ArrayList<>();
-        for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
-            Document doc = searcher.storedFields().document(scoreDoc.doc);
+        for (int i = offset; i < Math.min(offset + limit, topDocs.scoreDocs.length); i++) {
+            Document doc = searcher.storedFields().document(topDocs.scoreDocs[i].doc);
             hits.add(new ConcordanceHit(
                     doc.get(rawField1),
                     doc.get(rawField2)

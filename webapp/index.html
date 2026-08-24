@@ -369,6 +369,26 @@
             margin-top: 10px;
         }
 
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        .pagination .btn {
+            padding: 8px 18px;
+            font-size: 0.9rem;
+        }
+
+        .pagination-status {
+            color: #666;
+            font-size: 0.85rem;
+        }
+
         @media (max-width: 600px) {
             .tabs {
                 flex-wrap: wrap;
@@ -595,7 +615,9 @@
             });
         });
 
-        async function doSearch() {
+        const searchState = { term: '', field: 'source', offset: 0, limit: 20, total: 0 };
+
+        async function doSearch(offset = 0) {
             const term = document.getElementById('searchTerm').value.trim();
             const field = document.getElementById('searchField').value;
             const lang = field === 'source' ? sourceLang : targetLang;
@@ -606,6 +628,10 @@
                 return;
             }
 
+            searchState.term = term;
+            searchState.field = field;
+            searchState.offset = offset;
+
             resultsDiv.innerHTML = '<div class="loading">Searching...</div>';
 
             try {
@@ -613,9 +639,10 @@
                 const countRes = await fetch(`${API_BASE}/count?q=${encodeURIComponent(term)}&field=${lang}`);
                 if (!countRes.ok) throw new Error('Search failed');
                 const countData = await countRes.json();
+                searchState.total = countData.count;
 
                 // Then get concordance results
-                const concRes = await fetch(`${API_BASE}/concordance?q=${encodeURIComponent(term)}&field=${lang}&limit=20`);
+                const concRes = await fetch(`${API_BASE}/concordance?q=${encodeURIComponent(term)}&field=${lang}&limit=${searchState.limit}&offset=${offset}`);
                 if (!concRes.ok) throw new Error('Concordance search failed');
                 const concData = await concRes.json();
 
@@ -636,6 +663,7 @@
                             </div>
                         `;
                     });
+                    html += renderPagination(searchState, 'search');
                 }
 
                 resultsDiv.innerHTML = html;
@@ -644,7 +672,13 @@
             }
         }
 
-        async function doParallel() {
+        function searchPage(direction) {
+            doSearch(Math.max(0, searchState.offset + direction * searchState.limit));
+        }
+
+        const parallelState = { source: '', target: '', offset: 0, limit: 20, total: 0 };
+
+        async function doParallel(offset = 0) {
             const sourceTerm = document.getElementById('parallelSource').value.trim();
             const targetTerm = document.getElementById('parallelTarget').value.trim();
             const resultsDiv = document.getElementById('parallelResults');
@@ -654,12 +688,17 @@
                 return;
             }
 
+            parallelState.source = sourceTerm;
+            parallelState.target = targetTerm;
+            parallelState.offset = offset;
+
             resultsDiv.innerHTML = '<div class="loading">Searching parallel sentences...</div>';
 
             try {
-                const res = await fetch(`${API_BASE}/parallel?${sourceLang}=${encodeURIComponent(sourceTerm)}&${targetLang}=${encodeURIComponent(targetTerm)}&limit=20`);
+                const res = await fetch(`${API_BASE}/parallel?${sourceLang}=${encodeURIComponent(sourceTerm)}&${targetLang}=${encodeURIComponent(targetTerm)}&limit=${parallelState.limit}&offset=${offset}`);
                 if (!res.ok) throw new Error('Parallel search failed');
                 const data = await res.json();
+                parallelState.total = data.total;
 
                 let html = `
                     <div class="result-header">
@@ -678,12 +717,31 @@
                             </div>
                         `;
                     });
+                    html += renderPagination(parallelState, 'parallel');
                 }
 
                 resultsDiv.innerHTML = html;
             } catch (err) {
                 resultsDiv.innerHTML = `<div class="error">Error: ${err.message}</div>`;
             }
+        }
+
+        function parallelPage(direction) {
+            doParallel(Math.max(0, parallelState.offset + direction * parallelState.limit));
+        }
+
+        function renderPagination(state, kind) {
+            const shown = Math.min(state.offset + state.limit, state.total);
+            const start = state.total === 0 ? 0 : state.offset + 1;
+            const prevDisabled = state.offset === 0 ? 'disabled' : '';
+            const nextDisabled = state.offset + state.limit >= state.total ? 'disabled' : '';
+            return `
+                <div class="pagination">
+                    <button type="button" class="btn btn-primary" ${prevDisabled} onclick="${kind}Page(-1)">&larr; Prev</button>
+                    <span class="pagination-status">${start}-${shown} of ${state.total}</span>
+                    <button type="button" class="btn btn-primary" ${nextDisabled} onclick="${kind}Page(1)">Next &rarr;</button>
+                </div>
+            `;
         }
 
         async function doCompare() {

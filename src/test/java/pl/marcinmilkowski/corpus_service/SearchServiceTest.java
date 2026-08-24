@@ -116,7 +116,7 @@ class SearchServiceTest {
 
     @Test
     void parallelSearchFindsBothLanguages() throws IOException {
-        var result = searchService.parallel("butterfly", "motyla", 10);
+        var result = searchService.parallel("butterfly", "motyla", 10, 0);
 
         assertEquals(1, result.total());
         assertEquals(1, result.hits().size());
@@ -124,9 +124,24 @@ class SearchServiceTest {
 
     @Test
     void parallelSearchMismatchReturnsZero() throws IOException {
-        var result = searchService.parallel("butterfly", "problemow", 10);
+        var result = searchService.parallel("butterfly", "problemow", 10, 0);
 
         assertEquals(0, result.total());
+    }
+
+    @Test
+    void parallelSearchOffsetSkipsEarlierHits() throws IOException {
+        // "life" (tokenized from "Life span"/"life-span") pairs with "zycia"
+        // in docs 2 and 3; offset=1 must skip the first hit and return the
+        // second, not repeat it or come back empty.
+        var page1 = searchService.parallel("life", "zycia", 1, 0);
+        var page2 = searchService.parallel("life", "zycia", 1, 1);
+
+        assertEquals(2, page1.total());
+        assertEquals(2, page2.total());
+        assertEquals(1, page1.hits().size());
+        assertEquals(1, page2.hits().size());
+        assertNotEquals(page1.hits().get(0).source(), page2.hits().get(0).source());
     }
 
     @Test

@@ -5,7 +5,7 @@ setlocal
 
 REM Configuration
 set INDEX_DIR=D:\Dokumenty\slownik-wielki\lucene\lucene-corpus.index
-set PORT=8081
+set PORT=8082
 set HEAP_SIZE=4g
 
 echo ============================================
