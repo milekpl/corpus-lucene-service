@@ -85,6 +85,67 @@ class SearchServiceTest {
     }
 
     @Test
+    void luceneWildcardSuffixMatchesMultipleTerms() throws IOException {
+        // "lifespan" (doc 1), "Life span" (doc 2, tokenized), "life-span" (doc 3)
+        assertEquals(3, searchService.count("life*", "en", SearchService.SYNTAX_LUCENE));
+        assertEquals(0, searchService.count("life*", "en", SearchService.SYNTAX_SIMPLE));
+    }
+
+    @Test
+    void luceneLeadingWildcardIsAllowed() throws IOException {
+        assertEquals(1, searchService.count("*fly", "en", SearchService.SYNTAX_LUCENE));
+    }
+
+    @Test
+    void luceneBooleanOperators() throws IOException {
+        assertEquals(1, searchService.count("butterfly AND short", "en", SearchService.SYNTAX_LUCENE));
+        assertEquals(0, searchService.count("butterfly AND species", "en", SearchService.SYNTAX_LUCENE));
+        assertEquals(2, searchService.count("butterfly OR species", "en", SearchService.SYNTAX_LUCENE));
+        // positive clause + exclusion
+        assertEquals(1, searchService.count("species NOT butterfly", "en", SearchService.SYNTAX_LUCENE));
+    }
+
+    @Test
+    void luceneRegexQuery() throws IOException {
+        assertEquals(1, searchService.count("/theo?ries|butterfly/", "en", SearchService.SYNTAX_LUCENE));
+        assertEquals(1, searchService.count("/specie[s]/", "en", SearchService.SYNTAX_LUCENE));
+    }
+
+    @Test
+    void lucenePhraseWithProximity() throws IOException {
+        // Adjacent phrase: "Life span ..." plus hyphen-split "life-span"
+        assertEquals(2, searchService.count("\"life span\"", "en", SearchService.SYNTAX_LUCENE));
+        // Proximity: butterfly ... short within 6 positions in doc 1
+        assertEquals(1, searchService.count("\"butterfly short\"~6", "en", SearchService.SYNTAX_LUCENE));
+        assertEquals(0, searchService.count("\"butterfly short\"~0", "en", SearchService.SYNTAX_LUCENE));
+    }
+
+    @Test
+    void luceneExplicitFieldPrefixHitsExactField() throws IOException {
+        assertEquals(1, searchService.count("en_exact:life-span", "en", SearchService.SYNTAX_LUCENE));
+    }
+
+    @Test
+    void luceneMalformedQueryThrowsIllegalArgument() {
+        assertThrows(IllegalArgumentException.class,
+                () -> searchService.count("butterfly AND (", "en", SearchService.SYNTAX_LUCENE));
+    }
+
+    @Test
+    void luceneConcordanceUsesParsedQuery() throws IOException {
+        var result = searchService.concordance("butterfly AND short", "en", 10, 0,
+                SearchService.SYNTAX_LUCENE);
+        assertEquals(1, result.total());
+        assertTrue(result.hits().get(0).source().contains("butterfly"));
+    }
+
+    @Test
+    void simpleSyntaxRemainsDefault() throws IOException {
+        // No syntax arg → legacy heuristics; wildcard is a literal term
+        assertEquals(0, searchService.count("theor*", "en"));
+    }
+
+    @Test
     void countsMultiDotAbbreviation() throws IOException {
         int count = searchService.count("i.e.", "en");
         assertEquals(1, count);

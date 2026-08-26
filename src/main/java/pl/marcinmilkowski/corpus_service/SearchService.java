@@ -1,7 +1,9 @@
 package pl.marcinmilkowski.corpus_service;
 
+import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.*;
+import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
@@ -23,10 +25,15 @@ public class SearchService implements Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(SearchService.class);
 
+    /** Query syntax modes accepted by the API. */
+    public static final String SYNTAX_SIMPLE = "simple";
+    public static final String SYNTAX_LUCENE = "lucene";
+
     private final Directory directory;
     private final DirectoryReader reader;
     private final IndexWriter writer;
     private final IndexSearcher searcher;
+    private final Analyzer queryAnalyzer;
     private final Set<String> supportedFields;
     private final String sourceLang;
     private final String targetLang;
@@ -47,6 +54,7 @@ public class SearchService implements Closeable {
         // Discover fields from index and build analyzer
         FieldDiscoverer discoverer = new FieldDiscoverer(reader);
         this.supportedFields = discoverer.getLanguageFields();
+        this.queryAnalyzer = discoverer.buildAnalyzer();
 
         // Determine source and target languages
         String[] langs = supportedFields.toArray(new String[0]);
@@ -152,7 +160,21 @@ public class SearchService implements Closeable {
      * @return match count
      */
     public int count(String term, String field) throws IOException {
-        Query query = buildQuery(term, field);
+        return count(term, field, SYNTAX_SIMPLE);
+    }
+
+    /**
+     * Count documents matching a term or query.
+     *
+     * @param term   search term
+     * @param field  language field ("en" or "pl")
+     * @param syntax {@link #SYNTAX_SIMPLE} (term/phrase heuristics) or
+     *               {@link #SYNTAX_LUCENE} (full classic QueryParser syntax:
+     *               wildcards, boolean, regex, fuzzy, field prefixes)
+     * @return match count
+     */
+    public int count(String term, String field, String syntax) throws IOException {
+        Query query = buildQuery(term, field, syntax);
         return searcher.count(query);
     }
 
@@ -182,8 +204,24 @@ public class SearchService implements Closeable {
      */
     public ConcordanceResult concordance(String queryStr, String field, int limit, int offset)
             throws IOException {
+        return concordance(queryStr, field, limit, offset, SYNTAX_SIMPLE);
+    }
 
-        Query query = buildQuery(queryStr, field);
+    /**
+     * Find concordance hits (parallel sentences).
+     *
+     * @param queryStr search query
+     * @param field    language field
+     * @param limit    max results
+     * @param offset   skip first N results
+     * @param syntax   {@link #SYNTAX_SIMPLE} or {@link #SYNTAX_LUCENE}
+     * @return list of hits with both languages
+     */
+    public ConcordanceResult concordance(String queryStr, String field, int limit, int offset,
+                                         String syntax)
+            throws IOException {
+
+        Query query = buildQuery(queryStr, field, syntax);
         TopDocs topDocs = searcher.search(query, offset + limit);
 
         List<ConcordanceHit> hits = new ArrayList<>();
@@ -213,8 +251,8 @@ public class SearchService implements Closeable {
      * @return concordance result
      */
     public ConcordanceResult parallel(String term1, String term2, int limit, int offset) throws IOException {
-        Query query1 = buildQuery(term1, sourceLang);
-        Query query2 = buildQuery(term2, targetLang);
+        Query query1 = buildQuery(term1, sourceLang, SYNTAX_SIMPLE);
+        Query query2 = buildQuery(term2, targetLang, SYNTAX_SIMPLE);
 
         BooleanQuery combined = new BooleanQuery.Builder()
                 .add(query1, BooleanClause.Occur.MUST)
@@ -242,7 +280,17 @@ public class SearchService implements Closeable {
     /**
      * Build appropriate query based on term characteristics.
      */
-    private Query buildQuery(String term, String field) {
+    private Query buildQuery(String term, String field, String syntax) {
+        if (SYNTAX_LUCENE.equalsIgnoreCase(syntax)) {
+            return parseLuceneQuery(term, field + "_text");
+        }
+        return buildSimpleQuery(term, field);
+    }
+
+    /**
+     * Build a query with the legacy term/phrase heuristics.
+     */
+    private Query buildSimpleQuery(String term, String field) {
         String textField = field + "_text";
         String exactField = field + "_exact";
 
@@ -261,6 +309,25 @@ public class SearchService implements Closeable {
 
         // Single word: term query
         return new TermQuery(new Term(textField, term.toLowerCase()));
+    }
+
+    /**
+     * Parse a full classic-Lucene query string (wildcards {@code * ?}, boolean
+     * {@code AND OR NOT TO}, grouping, {@code +"phrases"}, {@code /regex/},
+     * fuzzy {@code ~}, proximity, and explicit field prefixes such as
+     * {@code en_exact:}).
+     *
+     * @throws IllegalArgumentException on a malformed query (mapped to HTTP 400
+     *                                  by the API handlers)
+     */
+    private Query parseLuceneQuery(String queryStr, String defaultField) {
+        try {
+            QueryParser parser = new QueryParser(defaultField, queryAnalyzer);
+            parser.setAllowLeadingWildcard(true);
+            return parser.parse(queryStr);
+        } catch (org.apache.lucene.queryparser.classic.ParseException e) {
+            throw new IllegalArgumentException("Invalid Lucene query: " + e.getMessage(), e);
+        }
     }
 
     private Query buildPhraseQuery(String phrase, String field) {

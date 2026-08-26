@@ -442,8 +442,15 @@
                     <label>Search term:</label>
                     <input type="text" id="searchTerm" placeholder="Enter a word or phrase...">
                 </div>
+                <div class="search-group">
+                    <label>Syntax:</label>
+                    <select id="searchSyntax">
+                        <option value="simple">Simple</option>
+                        <option value="lucene">Lucene</option>
+                    </select>
+                </div>
             </div>
-            <p class="help-text">Tip: Use quotes for exact phrases, e.g., "climate change"</p>
+            <p class="help-text" id="searchHelp">Tip: Use quotes for exact phrases, e.g., "climate change"</p>
             <div class="btn-row">
                 <button class="btn btn-primary" onclick="doSearch()">Search</button>
             </div>
@@ -617,9 +624,19 @@
 
         const searchState = { term: '', field: 'source', offset: 0, limit: 20, total: 0 };
 
+        const SYNTAX_HELP = {
+            simple: 'Tip: Use quotes for exact phrases, e.g., "climate change"',
+            lucene: 'Lucene syntax: wildcards theor* / theo?y · boolean theory AND (result OR finding) NOT "case study" · regex /theor(y|ies)/ · fuzzy theo~1 · proximity "climate change"~3 · fields en_exact:life-span'
+        };
+
+        document.getElementById('searchSyntax').addEventListener('change', e => {
+            document.getElementById('searchHelp').textContent = SYNTAX_HELP[e.target.value] || SYNTAX_HELP.simple;
+        });
+
         async function doSearch(offset = 0) {
             const term = document.getElementById('searchTerm').value.trim();
             const field = document.getElementById('searchField').value;
+            const syntax = document.getElementById('searchSyntax').value;
             const lang = field === 'source' ? sourceLang : targetLang;
             const resultsDiv = document.getElementById('searchResults');
 
@@ -636,13 +653,13 @@
 
             try {
                 // First get the count
-                const countRes = await fetch(`${API_BASE}/count?q=${encodeURIComponent(term)}&field=${lang}`);
+                const countRes = await fetch(`${API_BASE}/count?q=${encodeURIComponent(term)}&field=${lang}&syntax=${syntax}`);
                 if (!countRes.ok) throw new Error('Search failed');
                 const countData = await countRes.json();
                 searchState.total = countData.count;
 
                 // Then get concordance results
-                const concRes = await fetch(`${API_BASE}/concordance?q=${encodeURIComponent(term)}&field=${lang}&limit=${searchState.limit}&offset=${offset}`);
+                const concRes = await fetch(`${API_BASE}/concordance?q=${encodeURIComponent(term)}&field=${lang}&syntax=${syntax}&limit=${searchState.limit}&offset=${offset}`);
                 if (!concRes.ok) throw new Error('Concordance search failed');
                 const concData = await concRes.json();
 

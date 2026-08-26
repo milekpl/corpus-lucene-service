@@ -34,11 +34,22 @@ public class ConcordanceHandler extends HttpServlet {
         String field = req.getParameter("field");
         String limitStr = req.getParameter("limit");
         String offsetStr = req.getParameter("offset");
+        String syntax = req.getParameter("syntax");
 
         if (query == null || query.isBlank()) {
             sendError(resp, 400, "Missing 'q' parameter");
             return;
         }
+
+        if (syntax != null
+                && !SearchService.SYNTAX_SIMPLE.equalsIgnoreCase(syntax)
+                && !SearchService.SYNTAX_LUCENE.equalsIgnoreCase(syntax)) {
+            sendError(resp, 400, "Unsupported syntax: " + syntax +
+                    ". Available: " + SearchService.SYNTAX_SIMPLE + ", " + SearchService.SYNTAX_LUCENE);
+            return;
+        }
+        String resolvedSyntax = (syntax == null || syntax.isBlank())
+                ? SearchService.SYNTAX_SIMPLE : syntax.toLowerCase();
 
         Set<String> availableLangs = searchService.getSupportedLanguages();
 
@@ -62,13 +73,15 @@ public class ConcordanceHandler extends HttpServlet {
         String targetLang = searchService.getTargetLanguage();
 
         try {
-            ConcordanceResult result = searchService.concordance(query, field, limit, offset);
+            ConcordanceResult result = searchService.concordance(query, field, limit, offset, resolvedSyntax);
             sendJson(resp, new ConcordanceResponse(
                     result.total(),
                     result.hits().stream()
                             .map(h -> new HitResponse(h.source(), h.target(), sourceLang, targetLang))
                             .toList()
             ));
+        } catch (IllegalArgumentException e) {
+            sendError(resp, 400, e.getMessage());
         } catch (Exception e) {
             sendError(resp, 500, "Search error: " + e.getMessage());
         }
